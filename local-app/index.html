@@ -1,0 +1,373 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>PDF to Word Converter - Local App</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      background: #f8f9fa; color: #212529;
+      min-height: 100vh; display: flex; flex-direction: column;
+      align-items: center; padding: 2rem 1rem;
+    }
+    header { text-align: center; margin-bottom: 2rem; }
+    header h1 { font-size: 2rem; font-weight: 700; margin-bottom: .4rem; }
+    header p  { color: #6c757d; max-width: 520px; line-height: 1.5; }
+    .card {
+      background: #fff; border-radius: 12px;
+      box-shadow: 0 2px 16px rgba(0,0,0,.08);
+      padding: 2rem; width: 100%; max-width: 640px;
+    }
+    .drop-zone {
+      border: 2px dashed #adb5bd; border-radius: 8px;
+      padding: 2.5rem 1rem; text-align: center; cursor: pointer;
+      transition: border-color .2s, background .2s; margin-bottom: 1.25rem;
+    }
+    .drop-zone.drag-over { border-color: #0d6efd; background: #e8f0fe; }
+    .drop-zone svg { width: 48px; height: 48px; color: #6c757d; margin-bottom: .75rem; display: block; margin: 0 auto .75rem; }
+    .drop-zone p { color: #6c757d; font-size: .95rem; }
+    .drop-zone strong { color: #0d6efd; }
+    #fileInput { display: none; }
+    .file-name { font-weight: 600; color: #198754; margin-top: .5rem; font-size: .9rem; }
+    label.field { display: block; font-size: .875rem; font-weight: 600; margin-bottom: .35rem; color: #495057; }
+    input[type="url"], input[type="text"] {
+      width: 100%; padding: .5rem .75rem; border: 1px solid #ced4da;
+      border-radius: 6px; font-size: .9rem; margin-bottom: 1rem; display: block;
+    }
+    textarea {
+      width: 100%; padding: .5rem .75rem; border: 1px solid #ced4da;
+      border-radius: 6px; font-size: .85rem; font-family: monospace;
+      margin-bottom: 1rem; resize: vertical; display: block;
+    }
+    input:focus, textarea:focus, select:focus {
+      outline: none; border-color: #0d6efd; box-shadow: 0 0 0 3px rgba(13,110,253,.15);
+    }
+    .hint { font-size: .78rem; color: #6c757d; margin-top: -.75rem; margin-bottom: 1rem; }
+    select {
+      width: 100%; padding: .5rem .75rem; border: 1px solid #ced4da;
+      border-radius: 6px; font-size: .9rem; margin-bottom: 1rem; background: #fff; display: block;
+    }
+    .btn {
+      display: inline-flex; align-items: center; justify-content: center;
+      gap: .5rem; width: 100%; padding: .75rem 1rem;
+      background: #0d6efd; color: #fff; border: none; border-radius: 8px;
+      font-size: 1rem; font-weight: 600; cursor: pointer; transition: background .2s;
+    }
+    .btn:hover:not(:disabled) { background: #0a58ca; }
+    .btn:disabled { background: #6c757d; cursor: not-allowed; }
+    #status {
+      margin-top: 1.25rem; padding: 1rem; border-radius: 8px;
+      font-size: .9rem; display: none;
+    }
+    #status.info  { background: #cff4fc; color: #0c5460; border: 1px solid #b6effb; }
+    #status.error { background: #f8d7da; color: #721c24; border: 1px solid #f5c6cb; }
+    #status.ok    { background: #d1e7dd; color: #0f5132; border: 1px solid #badbcc; }
+    .steps { margin-top: .75rem; padding-left: 1.25rem; }
+    .steps li { margin-bottom: .35rem; }
+    .step-active  { font-weight: 700; }
+    .step-done    { color: #198754; }
+    .step-pending { color: #6c757d; }
+    footer { margin-top: 2rem; font-size: .8rem; color: #6c757d; text-align: center; }
+    footer a { color: #0d6efd; }
+    .badge { display: inline-block; padding: .2em .5em; background: #e9ecef;
+              border-radius: 4px; font-size: .75rem; font-weight: 600; margin-left: .3rem; }
+    .badge.primary { background: #cfe2ff; color: #0d6efd; }
+  </style>
+</head>
+<body>
+
+<div style="background:#0d6efd;color:#fff;text-align:center;padding:.6rem 1rem;font-size:.85rem;font-weight:600;">&#x1F4BB; Local Mode &mdash; processing happens entirely on your machine</div>
+<header>
+  <h1>PDF &#x2192; Word Converter</h1>
+  <p>
+    Powered by <strong>OpenDataLoader</strong> &mdash; #1 PDF parser in benchmarks (0.90 overall).<br />
+    Running locally &mdash; your files never leave your machine. No internet required after first setup.
+  </p>
+</header>
+
+<div class="card">
+
+  <!-- PDF drop zone -->
+  <div class="drop-zone" id="dropZone">
+    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"
+         stroke="currentColor" stroke-width="1.5">
+      <path stroke-linecap="round" stroke-linejoin="round"
+            d="M12 16v-8m0 0-3 3m3-3 3 3M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1" />
+    </svg>
+    <p>Drag &amp; drop a PDF here, or <strong>click to browse</strong></p>
+    <div class="file-name" id="fileName"></div>
+  </div>
+  <input type="file" id="fileInput" accept=".pdf,application/pdf" />
+
+  <!-- Parser service URL -->
+  <label class="field" for="parserUrl">OpenDataLoader parser service URL</label>
+  <input type="url" id="parserUrl" value="http://localhost:8000/convert" readonly style="background:#e8f5e9;color:#155724;font-weight:600;" />
+  <p class="hint">
+    POST endpoint accepting <code>multipart/form-data</code> (field: <code>file</code>).
+    Returns JSON <code>{ html?: string, markdown?: string }</code>.
+    See <code>web/parser-server/app.py</code> for a minimal FastAPI reference implementation.
+    Leave blank to paste content manually below.
+  </p>
+
+  <!-- Manual paste fallback -->
+  <label class="field" for="pasteInput">Or paste Markdown / HTML output directly</label>
+  <textarea id="pasteInput" rows="5"
+    placeholder="Paste output from: opendataloader-pdf input.pdf --format html,markdown"></textarea>
+
+  <!-- Preferred intermediate format -->
+  <label class="field" for="preferFormat">Intermediate format preference</label>
+  <select id="preferFormat">
+    <option value="auto" selected>Auto &mdash; HTML first, Markdown fallback</option>
+    <option value="html">Force HTML (primary path)</option>
+    <option value="markdown">Force Markdown (rendered via markdown-it)</option>
+  </select>
+
+  <button class="btn" id="convertBtn" onclick="startConversion()">
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none"
+         stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/>
+      <polyline points="7 10 12 15 17 10"/>
+      <line x1="12" y1="15" x2="12" y2="3"/>
+    </svg>
+    Convert &amp; Download .docx
+  </button>
+
+  <div id="status"></div>
+</div>
+
+<footer>
+  <p>
+    Open-source &middot; Apache 2.0 &middot;
+    <a href="https://github.com/opendataloader-project/opendataloader-pdf" target="_blank">opendataloader-pdf</a>
+    <span class="badge primary">#1 benchmark (0.90)</span>
+  </p>
+  <p style="margin-top:.4rem">
+    Browser DOCX: <a href="https://github.com/evidenceprime/html-docx-js" target="_blank">html-docx-js</a>
+    &middot; Markdown: <a href="https://github.com/markdown-it/markdown-it" target="_blank">markdown-it</a>
+  </p>
+</footer>
+
+<script>
+/* ====================================================================
+   OpenDataLoader PDF to DOCX  |  web/index.html
+   Pipeline:
+     1. Upload PDF to remote OpenDataLoader parser (or paste output)
+     2. Receive { html, markdown } from parser
+     3. Pick HTML (primary) or render Markdown via markdown-it (fallback)
+     4. Convert HTML -> .docx in-browser via html-docx-js
+     5. Trigger file download
+   ==================================================================== */
+
+/* ---- CDN lazy-loader ---- */
+function loadScript(src) {
+  return new Promise(function(res, rej) {
+    if (document.querySelector('script[src="' + src + '"]')) { res(); return; }
+    var s = document.createElement('script');
+    s.src = src; s.onload = res; s.onerror = rej;
+    document.head.appendChild(s);
+  });
+}
+
+/* ---- Drop-zone wiring ---- */
+var dropZone  = document.getElementById('dropZone');
+var fileInput = document.getElementById('fileInput');
+var fileName  = document.getElementById('fileName');
+
+dropZone.addEventListener('click', function() { fileInput.click(); });
+dropZone.addEventListener('dragover', function(e) {
+  e.preventDefault(); dropZone.classList.add('drag-over');
+});
+dropZone.addEventListener('dragleave', function() {
+  dropZone.classList.remove('drag-over');
+});
+dropZone.addEventListener('drop', function(e) {
+  e.preventDefault(); dropZone.classList.remove('drag-over');
+  if (e.dataTransfer.files[0]) setFile(e.dataTransfer.files[0]);
+});
+fileInput.addEventListener('change', function() {
+  if (fileInput.files[0]) setFile(fileInput.files[0]);
+});
+
+var selectedFile = null;
+function setFile(f) {
+  selectedFile = f;
+  fileName.textContent = f.name + '  (' + (f.size / 1024).toFixed(1) + ' KB)';
+}
+
+/* ---- Status display ---- */
+function setStatus(type, html) {
+  var el = document.getElementById('status');
+  el.className = type; el.innerHTML = html; el.style.display = 'block';
+}
+
+/* ---- Progress indicator ---- */
+function progress(active, note) {
+  var labels = ['Upload PDF to parser', 'Select HTML / Markdown', 'Generate DOCX', 'Download'];
+  var icons  = ['&#x2B06;', '&#x1F504;', '&#x1F4C4;', '&#x2B07;'];
+  var h = note ? '<p>' + note + '</p>' : '';
+  h += '<ol class="steps">';
+  for (var i = 0; i < labels.length; i++) {
+    var n   = i + 1;
+    var cls = n < active ? 'step-done' : n === active ? 'step-active' : 'step-pending';
+    var ico = n < active ? '&#x2705;' : icons[i];
+    h += '<li class="' + cls + '">' + ico + ' ' + labels[i] + '</li>';
+  }
+  return h + '</ol>';
+}
+
+/* ---- Wrap body in full HTML document (required by html-docx-js) ---- */
+function wrapHtml(body) {
+  return '<!DOCTYPE html><html><head><meta charset="UTF-8"/>' +
+    '<style>' +
+    'body{font-family:Calibri,Arial,sans-serif;font-size:11pt;line-height:1.5}' +
+    'table{border-collapse:collapse;width:100%;margin:1em 0}' +
+    'th,td{border:1px solid #888;padding:.4em .6em}th{background:#f0f0f0}' +
+    'img{max-width:100%;height:auto}' +
+    'h1{font-size:20pt}h2{font-size:16pt}h3{font-size:13pt}' +
+    'pre,code{font-family:"Courier New",monospace;background:#f8f8f8;padding:.2em .4em}' +
+    '</style></head><body>' + body + '</body></html>';
+}
+
+/* ---- Trigger browser download ---- */
+function downloadBlob(blob, name) {
+  var url = URL.createObjectURL(blob);
+  var a   = document.createElement('a');
+  a.href = url; a.download = name; a.click();
+  setTimeout(function() { URL.revokeObjectURL(url); }, 15000);
+}
+
+/* ====================================================================
+   Main conversion entry point
+   ==================================================================== */
+async function startConversion() {
+  var btn       = document.getElementById('convertBtn');
+  var parserUrl = document.getElementById('parserUrl').value.trim();
+  var pasteRaw  = document.getElementById('pasteInput').value.trim();
+  var preferFmt = document.getElementById('preferFormat').value;
+
+  if (!selectedFile && !pasteRaw) {
+    setStatus('error', '&#x26A0;&#xFE0F; Please upload a PDF or paste Markdown/HTML content.');
+    return;
+  }
+
+  btn.disabled = true;
+  setStatus('info', progress(1));
+
+  try {
+    /* ============================================================
+       STEP 1 - Obtain HTML and/or Markdown from parser
+       ============================================================ */
+    var html = '', md = '';
+
+    if (pasteRaw) {
+      /* User pasted content - sniff format by first non-whitespace char */
+      if (pasteRaw.trimStart().startsWith('<')) {
+        html = pasteRaw;
+      } else {
+        md = pasteRaw;
+      }
+    } else if (parserUrl) {
+      /* Remote OpenDataLoader parser */
+      setStatus('info', progress(1, 'Sending PDF to OpenDataLoader parser&#x2026;'));
+      var form = new FormData();
+      form.append('file', selectedFile);
+      /* Request both formats so we can use whichever is better */
+      var wantFormat = preferFmt === 'markdown' ? 'markdown' : 'html,markdown';
+      form.append('format', wantFormat);
+
+      var resp;
+      try {
+        resp = await fetch(parserUrl, { method: 'POST', body: form });
+      } catch (e) {
+        throw new Error(
+          'Network error: ' + e.message +
+          '<br/>Ensure the parser is running and CORS is enabled for this origin.'
+        );
+      }
+      if (!resp.ok) {
+        var txt = await resp.text().catch(function() { return ''; });
+        throw new Error('Parser returned HTTP ' + resp.status + ': ' + txt.slice(0, 200));
+      }
+
+      var result = await resp.json();
+      html = result.html || result.HTML || result.Html || '';
+      md   = result.markdown || result.Markdown || result.md || '';
+    } else {
+      /* Demo mode - no parser, no paste */
+      md = [
+        '# Demo Mode',
+        '',
+        'No parser URL was provided and no content was pasted.',
+        '',
+        '**To use the full pipeline:**',
+        '',
+        '1. Deploy the reference parser server (see `web/parser-server/`).',
+        '2. Enter its URL in the field above.',
+        '3. Upload a PDF and click Convert.',
+        '',
+        'Alternatively, run the CLI locally and paste its output:',
+        '',
+        '```',
+        'pip install opendataloader-pdf',
+        'opendataloader-pdf input.pdf --format html,markdown',
+        '```',
+        '',
+        'Then paste the contents of the generated .html or .md file above.',
+      ].join('\n');
+    }
+
+    setStatus('info', progress(2, 'Choosing intermediate format&#x2026;'));
+
+    /* ============================================================
+       STEP 2 - Choose HTML (primary) or Markdown (fallback)
+       ============================================================ */
+    var sourceHtml = '';
+    var preferHtml = preferFmt === 'auto' || preferFmt === 'html';
+
+    if (preferHtml && html) {
+      /* Primary path: use HTML directly - best fidelity */
+      sourceHtml = wrapHtml(html);
+    } else if (md) {
+      /* Fallback / forced: render Markdown through markdown-it */
+      setStatus('info', progress(2, 'Rendering Markdown via markdown-it&#x2026;'));
+      await loadScript('https://cdn.jsdelivr.net/npm/markdown-it@14/dist/markdown-it.min.js');
+      var renderer = window.markdownit({ html: true, linkify: true, typographer: true });
+      sourceHtml = wrapHtml(renderer.render(md));
+    } else if (html) {
+      /* html available but markdown was forced and unavailable - fall back gracefully */
+      sourceHtml = wrapHtml(html);
+    } else {
+      throw new Error('Parser returned no usable HTML or Markdown. Check the service response.');
+    }
+
+    /* ============================================================
+       STEP 3 - Convert to DOCX in browser using html-docx-js
+       ============================================================ */
+    setStatus('info', progress(3, 'Generating .docx file&#x2026;'));
+    await loadScript('https://cdn.jsdelivr.net/npm/html-docx-js@0.3.1/dist/html-docx.js');
+    var blob = window.htmlDocx.asBlob(sourceHtml);
+
+    /* ============================================================
+       STEP 4 - Download
+       ============================================================ */
+    var baseName = selectedFile ? selectedFile.name.replace(/\.pdf$/i, '') : 'document';
+    downloadBlob(blob, baseName + '.docx');
+
+    setStatus('ok',
+      '&#x2705; <strong>Done!</strong> Your <em>' +
+      (selectedFile ? selectedFile.name.replace(/\.pdf$/i, '') : 'document') +
+      '.docx</em> has been downloaded.'
+    );
+
+  } catch (err) {
+    setStatus('error', '&#x274C; <strong>Error:</strong> ' + err.message);
+    console.error('[pdf-to-docx]', err);
+  } finally {
+    btn.disabled = false;
+  }
+}
+</script>
+</body>
+</html>
