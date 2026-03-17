@@ -9,73 +9,48 @@ echo ============================================================
 echo.
 
 :: ---------------------------------------------------------------
-:: STEP 1 - Check / Install Java (required by OpenDataLoader)
+:: HELPER: find_java - uses PowerShell to locate java.exe anywhere
+:: under Program Files and injects it into PATH for this session.
+:: ---------------------------------------------------------------
+:find_java
+for /f "delims=" %%J in ('powershell -NoProfile -Command "$j = Get-ChildItem -Path 'C:\Program Files' -Recurse -Filter java.exe -ErrorAction SilentlyContinue | Where-Object { $_.FullName -notmatch 'javapath' } | Select-Object -First 1; if ($j) { $j.DirectoryName } else { '' }" 2^>nul') do (
+    if not "%%J"=="" (
+        set "PATH=%%J;!PATH!"
+        echo Java located at %%J
+        goto JAVA_OK
+    )
+)
+goto :eof
+
+:: ---------------------------------------------------------------
+:: STEP 1 - Check / Install Java
 :: ---------------------------------------------------------------
 echo [1/4] Checking for Java...
 
-:: Try java on PATH first
 java -version >nul 2>&1
 if %errorlevel% equ 0 goto JAVA_OK
 
-:: Not on PATH - check common install locations and add to PATH for this session
-for /d %%D in (
-    "%ProgramFiles%\Eclipse Adoptium\jre-21*"
-    "%ProgramFiles%\Eclipse Adoptium\jdk-21*"
-    "%ProgramFiles%\Java\jre*"
-    "%ProgramFiles%\Java\jdk*"
-    "%ProgramFiles%\Microsoft\jdk-*"
-    "%ProgramFiles(x86)%\Java\jre*"
-) do (
-    if exist "%%D\bin\java.exe" (
-        set "PATH=%%D\bin;!PATH!"
-        echo Found Java at %%D - added to session PATH.
-        goto JAVA_OK
-    )
-)
+:: Not on PATH - try to find it already installed
+call :find_java
+java -version >nul 2>&1
+if %errorlevel% equ 0 goto JAVA_OK
 
-:: Also check registry for JAVA_HOME
-for /f "tokens=2*" %%A in ('reg query "HKLM\SOFTWARE\JavaSoft\JRE" /v CurrentVersion 2^>nul') do set JRE_VER=%%B
-if defined JRE_VER (
-    for /f "tokens=2*" %%A in ('reg query "HKLM\SOFTWARE\JavaSoft\JRE\!JRE_VER!" /v JavaHome 2^>nul') do (
-        set "JAVA_HOME=%%B"
-        set "PATH=%%B\bin;!PATH!"
-        echo Found Java in registry at %%B
-        goto JAVA_OK
-    )
-)
-
-:: Still not found - download and install
+:: Truly not installed - download and install
 echo Java not found. Downloading Java 21 JRE ^(~50 MB one-time^)...
-powershell -Command "Invoke-WebRequest -Uri https://github.com/adoptium/temurin21-binaries/releases/download/jdk-21.0.3+9/OpenJDK21U-jre_x64_windows_hotspot_21.0.3_9.msi -OutFile '%TEMP%\java_installer.msi' -UseBasicParsing"
+powershell -NoProfile -Command "Invoke-WebRequest -Uri 'https://github.com/adoptium/temurin21-binaries/releases/download/jdk-21.0.3+9/OpenJDK21U-jre_x64_windows_hotspot_21.0.3_9.msi' -OutFile '$env:TEMP\java_installer.msi' -UseBasicParsing"
 if !errorlevel! neq 0 ( echo ERROR: Java download failed. Check internet. & pause & exit /b 1 )
 echo Installing Java...
 msiexec /i "%TEMP%\java_installer.msi" /quiet /norestart ADDLOCAL=FeatureMain,FeatureEnvironment,FeatureJarFileRunWith,FeatureJavaHome
-echo Waiting for install to finish...
-timeout /t 5 /nobreak >nul
+echo Waiting for installer to finish...
+timeout /t 8 /nobreak >nul
 
-:: Find the freshly installed Java and add to PATH for this session
-for /d %%D in (
-    "%ProgramFiles%\Eclipse Adoptium\jre-21*"
-    "%ProgramFiles%\Eclipse Adoptium\jdk-21*"
-) do (
-    if exist "%%D\bin\java.exe" (
-        set "PATH=%%D\bin;!PATH!"
-        echo Java installed and loaded. Continuing...
-        goto JAVA_OK
-    )
-)
+:: Now find it using PowerShell (works regardless of install folder name)
+call :find_java
+java -version >nul 2>&1
+if %errorlevel% equ 0 goto JAVA_OK
 
-:: Fallback: read from registry after install
-for /f "tokens=2*" %%A in ('reg query "HKLM\SOFTWARE\JavaSoft\JRE" /v CurrentVersion 2^>nul') do set JRE_VER=%%B
-if defined JRE_VER (
-    for /f "tokens=2*" %%A in ('reg query "HKLM\SOFTWARE\JavaSoft\JRE\!JRE_VER!" /v JavaHome 2^>nul') do (
-        set "PATH=%%B\bin;!PATH!"
-        echo Java loaded from registry. Continuing...
-        goto JAVA_OK
-    )
-)
-
-echo ERROR: Java installed but could not be located. Please re-run this script.
+echo ERROR: Java install failed or could not be located.
+echo Please install Java manually from https://adoptium.net and re-run.
 pause & exit /b 1
 
 :JAVA_OK
@@ -86,52 +61,45 @@ echo Java found. OK.
 :: ---------------------------------------------------------------
 echo.
 echo [2/4] Checking for Python...
+
 python --version >nul 2>&1
 set PYTHON_CMD=python
 if %errorlevel% equ 0 goto PYTHON_OK
 
 py --version >nul 2>&1
-if %errorlevel% equ 0 (
-    set PYTHON_CMD=py
-    goto PYTHON_OK
-)
+if %errorlevel% equ 0 ( set PYTHON_CMD=py & goto PYTHON_OK )
 
-:: Check common install locations
-for /d %%D in (
-    "%LocalAppData%\Programs\Python\Python3*"
-    "%ProgramFiles%\Python3*"
-    "%ProgramFiles(x86)%\Python3*"
-) do (
-    if exist "%%D\python.exe" (
-        set "PATH=%%D;%%D\Scripts;!PATH!"
+:: Try to find Python already installed via PowerShell
+for /f "delims=" %%P in ('powershell -NoProfile -Command "$p = Get-ChildItem -Path @($env:LOCALAPPDATA, $env:ProgramFiles, ${env:ProgramFiles(x86)}) -Recurse -Filter python.exe -ErrorAction SilentlyContinue | Where-Object { $_.FullName -notmatch 'WindowsApps' } | Select-Object -First 1; if ($p) { $p.DirectoryName } else { '' }" 2^>nul') do (
+    if not "%%P"=="" (
+        set "PATH=%%P;%%P\Scripts;!PATH!"
         set PYTHON_CMD=python
-        echo Found Python at %%D - added to session PATH.
+        echo Found Python at %%P
         goto PYTHON_OK
     )
 )
 
+:: Not installed - download and install
 echo Python not found. Downloading Python 3.12 ^(~25 MB one-time^)...
-powershell -Command "Invoke-WebRequest -Uri https://www.python.org/ftp/python/3.12.3/python-3.12.3-amd64.exe -OutFile '%TEMP%\python_installer.exe' -UseBasicParsing"
+powershell -NoProfile -Command "Invoke-WebRequest -Uri 'https://www.python.org/ftp/python/3.12.3/python-3.12.3-amd64.exe' -OutFile '$env:TEMP\python_installer.exe' -UseBasicParsing"
 if !errorlevel! neq 0 ( echo ERROR: Python download failed. Check internet. & pause & exit /b 1 )
-echo Installing Python ^(added to PATH^)...
+echo Installing Python...
 "%TEMP%\python_installer.exe" /quiet InstallAllUsers=0 PrependPath=1 Include_test=0
-echo Waiting for install to finish...
-timeout /t 5 /nobreak >nul
+echo Waiting for installer to finish...
+timeout /t 8 /nobreak >nul
 
-:: Find freshly installed Python
-for /d %%D in (
-    "%LocalAppData%\Programs\Python\Python3*"
-    "%ProgramFiles%\Python3*"
-) do (
-    if exist "%%D\python.exe" (
-        set "PATH=%%D;%%D\Scripts;!PATH!"
+:: Find freshly installed Python via PowerShell
+for /f "delims=" %%P in ('powershell -NoProfile -Command "$p = Get-ChildItem -Path @($env:LOCALAPPDATA, $env:ProgramFiles) -Recurse -Filter python.exe -ErrorAction SilentlyContinue | Where-Object { $_.FullName -notmatch 'WindowsApps' } | Select-Object -First 1; if ($p) { $p.DirectoryName } else { '' }" 2^>nul') do (
+    if not "%%P"=="" (
+        set "PATH=%%P;%%P\Scripts;!PATH!"
         set PYTHON_CMD=python
-        echo Python installed and loaded. Continuing...
+        echo Python located at %%P
         goto PYTHON_OK
     )
 )
 
-echo ERROR: Python installed but could not be located. Please re-run this script.
+echo ERROR: Python install failed or could not be located.
+echo Please install Python manually from https://python.org and re-run.
 pause & exit /b 1
 
 :PYTHON_OK
@@ -145,20 +113,19 @@ echo [3/4] Installing required packages ^(first run: ~1-2 min^)...
 %PYTHON_CMD% -m pip install --quiet --upgrade pip
 %PYTHON_CMD% -m pip install --quiet opendataloader-pdf fastapi "uvicorn[standard]" python-multipart
 if %errorlevel% neq 0 (
-    echo ERROR: Package install failed. Try right-clicking this file and "Run as administrator".
+    echo ERROR: Package install failed. Try right-clicking and "Run as administrator".
     pause & exit /b 1
 )
 echo Packages ready.
 
 :: ---------------------------------------------------------------
-:: STEP 4 - Write embedded server script + launch everything
+:: STEP 4 - Write embedded server + launch
 :: ---------------------------------------------------------------
 echo.
 echo [4/4] Starting PDF converter at http://localhost:8000 ...
 set SCRIPT_DIR=%~dp0
 set SERVER_PY=%SCRIPT_DIR%_server_auto.py
 
-:: Write the FastAPI server script
 (
 echo import sys, pathlib, glob, tempfile
 echo from fastapi import FastAPI, File, Form, UploadFile, HTTPException
@@ -198,18 +165,18 @@ for /f "tokens=5" %%a in ('netstat -aon 2^>nul ^| findstr ":8000 " ^| findstr LI
     taskkill /PID %%a /F >nul 2>&1
 )
 
-:: Start server in a minimised window
+:: Start server
 start "OpenDataLoader PDF Server" /min %PYTHON_CMD% -m uvicorn _server_auto:app --app-dir "%SCRIPT_DIR%" --host 127.0.0.1 --port 8000
 
-:: Wait for server to be ready (up to 20s)
+:: Wait up to 20s for server to be ready
 set /a tries=0
 :WAIT_LOOP
 timeout /t 1 /nobreak >nul
 set /a tries+=1
-powershell -Command "try { (Invoke-WebRequest -Uri http://localhost:8000/docs -UseBasicParsing -TimeoutSec 1).StatusCode } catch { exit 1 }" >nul 2>&1
+powershell -NoProfile -Command "try{(Invoke-WebRequest -Uri http://localhost:8000 -UseBasicParsing -TimeoutSec 1).StatusCode}catch{exit 1}" >nul 2>&1
 if %errorlevel% neq 0 (
     if !tries! lss 20 goto WAIT_LOOP
-    echo WARNING: Server may still be starting. Opening browser anyway...
+    echo WARNING: Server slow to start. Opening browser anyway...
 )
 echo Server is ready.
 start http://localhost:8000
@@ -220,8 +187,7 @@ echo.
 echo  1. Upload a PDF using the file picker.
 echo  2. Click "Convert and Download .docx"
 echo.
-echo  To stop the server, close the "OpenDataLoader PDF Server"
-echo  window, or press Ctrl+C in that window.
+echo  To stop: close the "OpenDataLoader PDF Server" window.
 echo ============================================================
 echo.
 pause
