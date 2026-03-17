@@ -1,0 +1,7 @@
+# web/parser-server/requirements.txt
+# Install with: pip install -r requirements.txt
+
+fastapi>=0.115.0
+uvicorn[standard]>=0.30.0
+python-multipart>=0.0.9
+opendataloader-pdf>=2.0.0
